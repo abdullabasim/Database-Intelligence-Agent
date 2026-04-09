@@ -73,5 +73,3 @@ docker compose up -d --build
 - Vector Database Integration: Implementing RAG-based analysis of technical documentation using Pinecone or Chroma.
 - Cross-Database Reasoning: Enabling the agent to join and analyze data across multiple disconnected database connections.
 
----
-Professional data intelligence through secure semantic abstraction.
