@@ -32,3 +32,5 @@ Thumbs.db
 backend_env/
 frontend/.next/
 frontend/node_modules/
+
+.vscode/
