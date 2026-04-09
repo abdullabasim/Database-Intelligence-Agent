@@ -1,6 +1,4 @@
-# Database Intelligence Agent
-
-The Database Intelligence Agent is a professional-grade, multi-tenant platform built with FastAPI and LangGraph. It is designed to enable secure, natural language interactions with any PostgreSQL database. By leveraging a Semantic Metadata Layer (MDL) and a sophisticated reasoning pipeline, the system provides an intelligent abstraction bridge between complex user questions and secure SQL execution.
+The Database Intelligence Agent is a professional-grade, multi-tenant platform built with FastAPI and LangGraph. It is designed to enable secure, natural language interactions with any PostgreSQL database—simply write a question about your tables and the agent will automatically fetch details and provide deep insights, such as analyzing reviews or identifying trends. By leveraging a Semantic Metadata Layer (MDL) and a sophisticated reasoning pipeline, the system provides an intelligent abstraction bridge between complex user questions and secure SQL execution.
 
 ---
 
