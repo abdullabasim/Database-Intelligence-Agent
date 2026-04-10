@@ -106,76 +106,32 @@ All external database credentials are encrypted at rest using AES-256 Fernet enc
 
 ## Technology Stack
 
-Every tool in this stack was chosen for a specific reason. This is not a generic boilerplate setup. Each technology solves a real problem that came up during the design of this system.
-
-### FastAPI
-
-The backend is built on FastAPI, an asynchronous Python web framework. The choice matters here because the agent pipeline involves multiple I/O-heavy steps: loading metadata from the database, calling the LLM, executing SQL on an external connection, and streaming the result back to the client. A synchronous framework would block on each of these steps. FastAPI uses Python's async/await model throughout, which means the server can handle many concurrent requests without waiting for any single one to finish.
-
-FastAPI also provides automatic OpenAPI documentation generation. Every route, request schema, and response model is documented and testable at `/docs` without any extra configuration. This made development and debugging significantly faster.
-
-### LangGraph
-
-LangGraph is the framework that orchestrates the multi-agent pipeline. The core idea behind LangGraph is that an AI reasoning process should be modeled as a directed graph, where each node is a specific task and the edges between them represent conditional logic.
-
-In this system, each stage of the pipeline is a separate node: loading the MDL, understanding the question, generating SQL, validating it, executing it, and formatting the answer. The graph decides which node runs next based on the output of the previous one. If the SQL fails, the graph loops back to generation. If validation catches a dangerous query, the graph skips execution entirely and routes to the format node with an error message.
-
-This structure makes the agent behavior explicit and testable. You can look at the graph definition and understand exactly what happens in every possible scenario. It also makes it easy to add new nodes or change routing logic without touching the rest of the pipeline.
-
-### Pydantic
-
-Pydantic is used in two distinct places in this system. The first is standard FastAPI usage: every API request and response is validated against a Pydantic model, which means malformed data never reaches the business logic layer.
-
-The second use is more specific to the agent: LLM responses are structured using Pydantic schemas. When the MDL builder asks the LLM to describe a table or column, the response is parsed into a typed Pydantic model rather than treated as raw text. This prevents incomplete or malformed LLM outputs from being stored in the MDL. If the model returns something that does not match the expected structure, the system catches it, logs it, and either retries or skips that element. This is what makes the MDL generation reliable rather than fragile.
-
-### Next.js
-
-The frontend is a Next.js application. Next.js was chosen because of its built-in support for server-side rendering and API integration. The dashboard, database management views, and chat interface are all handled within a single cohesive application rather than a collection of disconnected pages.
-
-The chat interface uses Server-Sent Events to stream responses from the backend as they arrive, rather than waiting for the entire answer to complete before showing anything. This gives users immediate feedback and makes long-running queries feel interactive rather than frozen.
-
-### PostgreSQL
-
-PostgreSQL serves two roles in this system. The first is as the internal metadata store: it holds user accounts, database connection records, encrypted credentials, MDL schemas, and conversation history. The second role is as the target database type that users connect to for analysis.
-
-These are two completely separate database connections. The internal store is managed by the application. The user's connected database is accessed read-only through a dynamically constructed connection using decrypted credentials at query time.
-
-Alembic manages all migrations for the internal store. Every schema change is versioned and applied automatically on startup, so there is no manual migration step required when deploying a new version.
-
-### Docker and Docker Compose
-
-The entire stack, PostgreSQL, FastAPI, and Next.js, runs inside Docker containers orchestrated by Docker Compose. The entrypoint script for the backend container runs migrations and seeds the initial data before starting the server, which means a clean deployment is always a single command with no manual steps.
-
-The containers share an internal network, so the frontend calls the backend by container name rather than host IP, and the backend connects to PostgreSQL the same way. This behavior is identical across local development and any server deployment.
-
-### Alembic
-
-Alembic is the database migration tool used to manage every schema change to the internal PostgreSQL store. Rather than modifying the database directly, every change is written as a versioned migration file. When the application starts, the entrypoint script runs `alembic upgrade head`, which applies any pending migrations in order before the server accepts requests.
-
-This means the database schema is always in sync with the code, regardless of how many times or from which state the system is deployed. Rolling forward is automatic. Rolling back is a single command. Every migration is stored alongside the application code in version control, so you can always trace exactly when and why the schema changed.
-
-The migrations cover the full internal schema: user accounts, hashed passwords, database connection records, encrypted credential fields, MDL schema versions, and chat conversation history.
-
-### Database Seeding
-
-The seeding system runs immediately after migrations and is responsible for initializing the application into a usable state. On first run, it checks for the existence of a default administrator account and creates one if it does not exist. On subsequent runs, it skips silently.
-
-The seeder is designed to be idempotent, meaning it is safe to run multiple times without creating duplicate data or causing errors. This matters because the entrypoint script runs both migrations and seeding on every container start. Whether the database is brand new or has been running for months, the result is always the same: the required baseline data is present.
-
-The seeding logic is written as a standard async Python module using SQLAlchemy, which means it follows the same session and transaction patterns as the rest of the application. It can be extended to seed any kind of initial reference data, not just user accounts.
-
-### JWT Authentication
-
-All API routes are protected using JSON Web Tokens. When a user logs in, the backend issues a signed JWT containing the user's ID and expiry timestamp. The frontend stores this token and attaches it to every subsequent request via the Authorization header.
-
-The backend verifies the token on each request before allowing access to any protected resource. The token is signed using a secret key configured through environment variables, and it expires after a configurable duration. Expired or tampered tokens are rejected immediately.
-
-This approach keeps the backend stateless: the server does not need to maintain sessions or look up any state to verify a request. It reads the token, verifies the signature, extracts the user identity, and proceeds. This scales naturally because any number of server instances can validate the same token without coordinating with each other.
-
-The user identity extracted from the token is then used to enforce tenant isolation. Every database query, every MDL lookup, and every connection record is scoped to the `user_id` from the token, so there is no way for one user's request to accidentally reach another user's data.
+- FastAPI (async Python backend, SSE streaming, OpenAPI docs)
+- LangGraph (multi-agent reasoning pipeline)
+- Pydantic (request/response validation and structured LLM output parsing)
+- Next.js (frontend dashboard and chat interface)
+- PostgreSQL (internal metadata store and target database)
+- SQLAlchemy + Alembic (ORM and versioned migrations)
+- Docker and Docker Compose (fully containerized deployment)
+- JWT (stateless authentication and tenant isolation)
+- Fernet encryption (credential storage at rest)
 
 ---
 
+## Sample Data and Testing
+
+The project ships with a seeding script that runs automatically on every container start. It is written to be idempotent, meaning it checks before inserting and never creates duplicates, so it is safe to run against a database in any state.
+
+On first run, it creates a default administrator account that gives you immediate access to the dashboard and API without any manual setup:
+
+- Email: admin@example.com
+- Password: admin123
+
+This is intentionally kept simple so that anyone cloning the project can be up and running in under a minute. For testing the agent itself, connect any PostgreSQL database you have access to through the dashboard, trigger an MDL refresh, and start asking questions.
+
+The seeding system is designed to be extended. If you want to pre-populate the system with test database connections, sample MDL schemas, or additional user accounts for team testing, the seed script is the right place to add that logic. It uses the same async SQLAlchemy session pattern as the rest of the application.
+
+---
 
 ## Getting Started
 
@@ -195,4 +151,9 @@ Once the containers are running:
 
 ## What's Next
 
-The current system supports PostgreSQL. The next phase of development will extend support to other relational and non-relational databases, including MySQL, SQL Server, and MongoDB. We are also exploring the use of vector databases to allow the MDL to incorporate unstructured documentation, so the agent can reason about data it cannot directly query.
+The current release supports PostgreSQL. Planned future work includes:
+
+- Support for MySQL, SQL Server, and MongoDB
+- Background task for MDL generation, so that large schemas with hundreds of tables do not block the API while the agent inspects and enriches the schema. The idea is to trigger the refresh and let it run silently while users continue working with the existing MDL
+- A progress status endpoint so users can track how far along an MDL generation job is
+- Vector database integration to allow the MDL to incorporate unstructured documentation such as internal wikis or API specs, enabling the agent to reason about data it cannot directly query
